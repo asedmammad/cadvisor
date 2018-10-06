@@ -31,16 +31,16 @@ Set the storage driver as ES:
 ```
 There are also optional flags:
 
-* storage_driver_es_basic_auth 
-* storage_driver_es_sniffer_timeout
-* storage_driver_es_sniffer_timeout_startup
-* storage_driver_es_sniffer_interval
-* storage_driver_es_enable_health_check
-* storage_driver_es_health_check_timeout
-* storage_driver_es_health_check_timeout_startup
-* storage_driver_es_health_check_interval
+* -storage_driver_es_basic_auth (ElasticSearch basic auth: user:password)
+* -storage_driver_es_sniffer_timeout (The time before Elastic times out on sniffing nodes in seconds)
+* -storage_driver_es_sniffer_timeout_startup (The sniffing timeout used while creating a new client)
+* -storage_driver_es_sniffer_interval (The interval between two sniffer processes)
+* -storage_driver_es_enable_health_check (Enable health check)
+* -storage_driver_es_health_check_timeout (The timeout for health checks)
+* -storage_driver_es_health_check_timeout_startup (The health check timeout used while creating a new client)
+* -storage_driver_es_health_check_interval (The interval between two health checks)
 
-all options explaination can be found at  project [olivere/elastic](https://github.com/olivere/elastic/wiki).
+all options explaination can be found at  project [asedmammad/elastic](https://github.com/asedmammad/elastic/wiki).
 
 ### index name time support
 Enable golang time format support for option **storage_driver_es_index**.
