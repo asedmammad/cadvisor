@@ -33,7 +33,7 @@ func TestMachineInformationIsReturned(t *testing.T) {
 	if machineInfo.NumCores <= 0 || machineInfo.NumCores >= 1000000 {
 		t.Errorf("Machine info has unexpected number of cores: %v", machineInfo.NumCores)
 	}
-	if machineInfo.MemoryCapacity <= 0 || machineInfo.MemoryCapacity >= (1<<50 /* 1PB */) {
+	if machineInfo.MemoryCapacity == 0 || machineInfo.MemoryCapacity >= (1<<50 /* 1PB */) {
 		t.Errorf("Machine info has unexpected amount of memory: %v", machineInfo.MemoryCapacity)
 	}
 	if len(machineInfo.Filesystems) == 0 {
@@ -43,13 +43,15 @@ func TestMachineInformationIsReturned(t *testing.T) {
 		if fs.Device == "" {
 			t.Errorf("Expected a non-empty device name in: %+v", fs)
 		}
-		if fs.Capacity < 0 || fs.Capacity >= (1<<60 /* 1 EB*/) {
+		if fs.Capacity >= (1 << 60 /* 1 EB*/) {
 			t.Errorf("Unexpected capacity in device %q: %v", fs.Device, fs.Capacity)
 		}
 		if fs.Type == "" {
 			t.Errorf("Filesystem type is not set")
 		} else if fs.Type == "vfs" && fs.Inodes == 0 {
-			t.Errorf("Inodes not available for device %q", fs.Device)
+			if fs.Device != "devpts" {
+				t.Errorf("Inodes not available for device %q", fs.Device)
+			}
 		}
 	}
 }

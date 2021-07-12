@@ -16,325 +16,59 @@ package metrics
 
 import (
 	"errors"
-	"io/ioutil"
-	"net/http"
-	"net/http/httptest"
-	"regexp"
-	"strings"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/google/cadvisor/container"
 	info "github.com/google/cadvisor/info/v1"
+	v2 "github.com/google/cadvisor/info/v2"
+
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
+	clock "k8s.io/utils/clock/testing"
 )
 
-type testSubcontainersInfoProvider struct{}
-
-func (p testSubcontainersInfoProvider) GetVersionInfo() (*info.VersionInfo, error) {
-	return &info.VersionInfo{
-		KernelVersion:      "4.1.6-200.fc22.x86_64",
-		ContainerOsVersion: "Fedora 22 (Twenty Two)",
-		DockerVersion:      "1.8.1",
-		CadvisorVersion:    "0.16.0",
-		CadvisorRevision:   "abcdef",
-	}, nil
-}
-
-func (p testSubcontainersInfoProvider) GetMachineInfo() (*info.MachineInfo, error) {
-	return &info.MachineInfo{
-		NumCores:       4,
-		MemoryCapacity: 1024,
-	}, nil
-}
-
-var allMetrics = container.MetricSet{
-	container.CpuUsageMetrics:         struct{}{},
-	container.ProcessSchedulerMetrics: struct{}{},
-	container.PerCpuUsageMetrics:      struct{}{},
-	container.MemoryUsageMetrics:      struct{}{},
-	container.CpuLoadMetrics:          struct{}{},
-	container.DiskIOMetrics:           struct{}{},
-	container.AcceleratorUsageMetrics: struct{}{},
-	container.DiskUsageMetrics:        struct{}{},
-	container.NetworkUsageMetrics:     struct{}{},
-	container.NetworkTcpUsageMetrics:  struct{}{},
-	container.NetworkUdpUsageMetrics:  struct{}{},
-	container.ProcessMetrics:          struct{}{},
-}
-
-func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.ContainerInfoRequest) ([]*info.ContainerInfo, error) {
-	return []*info.ContainerInfo{
-		{
-			ContainerReference: info.ContainerReference{
-				Name:    "testcontainer",
-				Aliases: []string{"testcontaineralias"},
-			},
-			Spec: info.ContainerSpec{
-				Image:  "test",
-				HasCpu: true,
-				Cpu: info.CpuSpec{
-					Limit:  1000,
-					Period: 100000,
-					Quota:  10000,
-				},
-				Memory: info.MemorySpec{
-					Limit:       2048,
-					Reservation: 1024,
-					SwapLimit:   4096,
-				},
-				CreationTime: time.Unix(1257894000, 0),
-				Labels: map[string]string{
-					"foo.label": "bar",
-				},
-				Envs: map[string]string{
-					"foo+env": "prod",
-				},
-			},
-			Stats: []*info.ContainerStats{
-				{
-					Timestamp: time.Unix(1395066363, 0),
-					Cpu: info.CpuStats{
-						Usage: info.CpuUsage{
-							Total:  1,
-							PerCpu: []uint64{2, 3, 4, 5},
-							User:   6,
-							System: 7,
-						},
-						CFS: info.CpuCFS{
-							Periods:          723,
-							ThrottledPeriods: 18,
-							ThrottledTime:    1724314000,
-						},
-						Schedstat: info.CpuSchedstat{
-							RunTime:      53643567,
-							RunqueueTime: 479424566378,
-							RunPeriods:   984285,
-						},
-						LoadAverage: 2,
-					},
-					Memory: info.MemoryStats{
-						Usage:      8,
-						MaxUsage:   8,
-						WorkingSet: 9,
-						ContainerData: info.MemoryStatsMemoryData{
-							Pgfault:    10,
-							Pgmajfault: 11,
-						},
-						HierarchicalData: info.MemoryStatsMemoryData{
-							Pgfault:    12,
-							Pgmajfault: 13,
-						},
-						Cache:      14,
-						RSS:        15,
-						MappedFile: 16,
-						Swap:       8192,
-					},
-					Network: info.NetworkStats{
-						InterfaceStats: info.InterfaceStats{
-							Name:      "eth0",
-							RxBytes:   14,
-							RxPackets: 15,
-							RxErrors:  16,
-							RxDropped: 17,
-							TxBytes:   18,
-							TxPackets: 19,
-							TxErrors:  20,
-							TxDropped: 21,
-						},
-						Interfaces: []info.InterfaceStats{
-							{
-								Name:      "eth0",
-								RxBytes:   14,
-								RxPackets: 15,
-								RxErrors:  16,
-								RxDropped: 17,
-								TxBytes:   18,
-								TxPackets: 19,
-								TxErrors:  20,
-								TxDropped: 21,
-							},
-						},
-						Tcp: info.TcpStat{
-							Established: 13,
-							SynSent:     0,
-							SynRecv:     0,
-							FinWait1:    0,
-							FinWait2:    0,
-							TimeWait:    0,
-							Close:       0,
-							CloseWait:   0,
-							LastAck:     0,
-							Listen:      3,
-							Closing:     0,
-						},
-						Tcp6: info.TcpStat{
-							Established: 11,
-							SynSent:     0,
-							SynRecv:     0,
-							FinWait1:    0,
-							FinWait2:    0,
-							TimeWait:    0,
-							Close:       0,
-							CloseWait:   0,
-							LastAck:     0,
-							Listen:      3,
-							Closing:     0,
-						},
-						Udp: info.UdpStat{
-							Listen:   0,
-							Dropped:  0,
-							RxQueued: 0,
-							TxQueued: 0,
-						},
-						Udp6: info.UdpStat{
-							Listen:   0,
-							Dropped:  0,
-							RxQueued: 0,
-							TxQueued: 0,
-						},
-					},
-					Filesystem: []info.FsStats{
-						{
-							Device:          "sda1",
-							InodesFree:      524288,
-							Inodes:          2097152,
-							Limit:           22,
-							Usage:           23,
-							ReadsCompleted:  24,
-							ReadsMerged:     25,
-							SectorsRead:     26,
-							ReadTime:        27,
-							WritesCompleted: 28,
-							WritesMerged:    39,
-							SectorsWritten:  40,
-							WriteTime:       41,
-							IoInProgress:    42,
-							IoTime:          43,
-							WeightedIoTime:  44,
-						},
-						{
-							Device:          "sda2",
-							InodesFree:      262144,
-							Inodes:          2097152,
-							Limit:           37,
-							Usage:           38,
-							ReadsCompleted:  39,
-							ReadsMerged:     40,
-							SectorsRead:     41,
-							ReadTime:        42,
-							WritesCompleted: 43,
-							WritesMerged:    44,
-							SectorsWritten:  45,
-							WriteTime:       46,
-							IoInProgress:    47,
-							IoTime:          48,
-							WeightedIoTime:  49,
-						},
-					},
-					Accelerators: []info.AcceleratorStats{
-						{
-							Make:        "nvidia",
-							Model:       "tesla-p100",
-							ID:          "GPU-deadbeef-1234-5678-90ab-feedfacecafe",
-							MemoryTotal: 20304050607,
-							MemoryUsed:  2030405060,
-							DutyCycle:   12,
-						},
-						{
-							Make:        "nvidia",
-							Model:       "tesla-k80",
-							ID:          "GPU-deadbeef-0123-4567-89ab-feedfacecafe",
-							MemoryTotal: 10203040506,
-							MemoryUsed:  1020304050,
-							DutyCycle:   6,
-						},
-					},
-					Processes: info.ProcessStats{
-						ProcessCount: 1,
-						FdCount:      5,
-					},
-					TaskStats: info.LoadStats{
-						NrSleeping:        50,
-						NrRunning:         51,
-						NrStopped:         52,
-						NrUninterruptible: 53,
-						NrIoWait:          54,
-					},
-				},
-			},
-		},
-	}, nil
-}
-
-var (
-	includeRe = regexp.MustCompile(`^(?:(?:# HELP |# TYPE )?container_|cadvisor_version_info\{)`)
-	ignoreRe  = regexp.MustCompile(`^container_last_seen\{`)
-)
+var now = clock.NewFakeClock(time.Unix(1395066363, 0))
 
 func TestPrometheusCollector(t *testing.T) {
 	c := NewPrometheusCollector(testSubcontainersInfoProvider{}, func(container *info.ContainerInfo) map[string]string {
 		s := DefaultContainerLabels(container)
 		s["zone.name"] = "hello"
 		return s
-	}, allMetrics)
-	prometheus.MustRegister(c)
-	defer prometheus.Unregister(c)
+	}, container.AllMetrics, now, v2.RequestOptions{})
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(c)
 
-	testPrometheusCollector(t, c, "testdata/prometheus_metrics")
+	testPrometheusCollector(t, reg, "testdata/prometheus_metrics")
 }
 
-func testPrometheusCollector(t *testing.T, c *PrometheusCollector, metricsFile string) {
-	rw := httptest.NewRecorder()
-	prometheus.Handler().ServeHTTP(rw, &http.Request{})
+func TestPrometheusCollectorWithPerfAggregated(t *testing.T) {
+	metrics := container.MetricSet{
+		container.PerfMetrics: struct{}{},
+	}
+	c := NewPrometheusCollector(testSubcontainersInfoProvider{}, func(container *info.ContainerInfo) map[string]string {
+		s := DefaultContainerLabels(container)
+		s["zone.name"] = "hello"
+		return s
+	}, metrics, now, v2.RequestOptions{})
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(c)
 
-	wantMetrics, err := ioutil.ReadFile(metricsFile)
+	testPrometheusCollector(t, reg, "testdata/prometheus_metrics_perf_aggregated")
+}
+
+func testPrometheusCollector(t *testing.T, gatherer prometheus.Gatherer, metricsFile string) {
+	wantMetrics, err := os.Open(metricsFile)
 	if err != nil {
 		t.Fatalf("unable to read input test file %s", metricsFile)
 	}
 
-	wantLines := strings.Split(string(wantMetrics), "\n")
-	gotLines := strings.Split(string(rw.Body.String()), "\n")
-
-	// Until the Prometheus Go client library offers better testability
-	// (https://github.com/prometheus/client_golang/issues/58), we simply compare
-	// verbatim text-format metrics outputs, but ignore certain metric lines
-	// whose value depends on the current time or local circumstances.
-	for i, want := range wantLines {
-		if !includeRe.MatchString(want) || ignoreRe.MatchString(want) {
-			continue
-		}
-		if want != gotLines[i] {
-			t.Fatalf("unexpected metric line\nwant: %s\nhave: %s", want, gotLines[i])
-		}
+	err = testutil.GatherAndCompare(gatherer, wantMetrics)
+	if err != nil {
+		t.Fatalf("Metric comparison failed: %s", err)
 	}
-}
-
-type erroringSubcontainersInfoProvider struct {
-	successfulProvider testSubcontainersInfoProvider
-	shouldFail         bool
-}
-
-func (p *erroringSubcontainersInfoProvider) GetVersionInfo() (*info.VersionInfo, error) {
-	if p.shouldFail {
-		return nil, errors.New("Oops 1")
-	}
-	return p.successfulProvider.GetVersionInfo()
-}
-
-func (p *erroringSubcontainersInfoProvider) GetMachineInfo() (*info.MachineInfo, error) {
-	if p.shouldFail {
-		return nil, errors.New("Oops 2")
-	}
-	return p.successfulProvider.GetMachineInfo()
-}
-
-func (p *erroringSubcontainersInfoProvider) SubcontainersInfo(
-	a string, r *info.ContainerInfoRequest) ([]*info.ContainerInfo, error) {
-	if p.shouldFail {
-		return []*info.ContainerInfo{}, errors.New("Oops 3")
-	}
-	return p.successfulProvider.SubcontainersInfo(a, r)
 }
 
 func TestPrometheusCollector_scrapeFailure(t *testing.T) {
@@ -347,13 +81,241 @@ func TestPrometheusCollector_scrapeFailure(t *testing.T) {
 		s := DefaultContainerLabels(container)
 		s["zone.name"] = "hello"
 		return s
-	}, allMetrics)
-	prometheus.MustRegister(c)
-	defer prometheus.Unregister(c)
+	}, container.AllMetrics, now, v2.RequestOptions{})
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(c)
 
-	testPrometheusCollector(t, c, "testdata/prometheus_metrics_failure")
+	testPrometheusCollector(t, reg, "testdata/prometheus_metrics_failure")
 
 	provider.shouldFail = false
 
-	testPrometheusCollector(t, c, "testdata/prometheus_metrics")
+	testPrometheusCollector(t, reg, "testdata/prometheus_metrics")
+}
+
+func TestNewPrometheusCollectorWithPerf(t *testing.T) {
+	c := NewPrometheusCollector(&mockInfoProvider{}, mockLabelFunc, container.MetricSet{container.PerfMetrics: struct{}{}}, now, v2.RequestOptions{})
+	assert.Len(t, c.containerMetrics, 5)
+	names := []string{}
+	for _, m := range c.containerMetrics {
+		names = append(names, m.name)
+	}
+	assert.Contains(t, names, "container_last_seen")
+	assert.Contains(t, names, "container_perf_events_total")
+	assert.Contains(t, names, "container_perf_events_scaling_ratio")
+	assert.Contains(t, names, "container_perf_uncore_events_total")
+	assert.Contains(t, names, "container_perf_uncore_events_scaling_ratio")
+}
+
+func TestNewPrometheusCollectorWithRequestOptions(t *testing.T) {
+	p := mockInfoProvider{}
+	opts := v2.RequestOptions{
+		IdType: "docker",
+	}
+	c := NewPrometheusCollector(&p, mockLabelFunc, container.AllMetrics, now, opts)
+	ch := make(chan prometheus.Metric, 10)
+	c.Collect(ch)
+	assert.Equal(t, p.options, opts)
+}
+
+type mockInfoProvider struct {
+	options v2.RequestOptions
+}
+
+func (m *mockInfoProvider) GetRequestedContainersInfo(containerName string, options v2.RequestOptions) (map[string]*info.ContainerInfo, error) {
+	m.options = options
+	return map[string]*info.ContainerInfo{}, nil
+}
+
+func (m *mockInfoProvider) GetVersionInfo() (*info.VersionInfo, error) {
+	return nil, errors.New("not supported")
+}
+
+func (m *mockInfoProvider) GetMachineInfo() (*info.MachineInfo, error) {
+	return nil, errors.New("not supported")
+}
+
+func mockLabelFunc(*info.ContainerInfo) map[string]string {
+	return map[string]string{}
+}
+
+func TestGetPerCpuCorePerfEvents(t *testing.T) {
+	containerStats := &info.ContainerStats{
+		Timestamp: time.Unix(1395066367, 0),
+		PerfStats: []info.PerfStat{
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 1.0,
+					Value:        123,
+					Name:         "instructions",
+				},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.5,
+					Value:        456,
+					Name:         "instructions",
+				},
+				Cpu: 1,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.7,
+					Value:        321,
+					Name:         "instructions_retired"},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.3,
+					Value:        789,
+					Name:         "instructions_retired"},
+				Cpu: 1,
+			},
+		},
+	}
+	metricVals := getPerCPUCorePerfEvents(containerStats)
+	assert.Equal(t, 4, len(metricVals))
+	values := []float64{}
+	for _, metric := range metricVals {
+		values = append(values, metric.value)
+	}
+	assert.Contains(t, values, 123.0)
+	assert.Contains(t, values, 456.0)
+	assert.Contains(t, values, 321.0)
+	assert.Contains(t, values, 789.0)
+}
+
+func TestGetPerCpuCoreScalingRatio(t *testing.T) {
+	containerStats := &info.ContainerStats{
+		Timestamp: time.Unix(1395066367, 0),
+		PerfStats: []info.PerfStat{
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 1.0,
+					Value:        123,
+					Name:         "instructions"},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.5,
+					Value:        456,
+					Name:         "instructions"},
+				Cpu: 1,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.7,
+					Value:        321,
+					Name:         "instructions_retired"},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.3,
+					Value:        789,
+					Name:         "instructions_retired"},
+				Cpu: 1,
+			},
+		},
+	}
+	metricVals := getPerCPUCoreScalingRatio(containerStats)
+	assert.Equal(t, 4, len(metricVals))
+	values := []float64{}
+	for _, metric := range metricVals {
+		values = append(values, metric.value)
+	}
+	assert.Contains(t, values, 1.0)
+	assert.Contains(t, values, 0.5)
+	assert.Contains(t, values, 0.7)
+	assert.Contains(t, values, 0.3)
+}
+
+func TestGetAggCorePerfEvents(t *testing.T) {
+	containerStats := &info.ContainerStats{
+		Timestamp: time.Unix(1395066367, 0),
+		PerfStats: []info.PerfStat{
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 1.0,
+					Value:        123,
+					Name:         "instructions"},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.5,
+					Value:        456,
+					Name:         "instructions"},
+				Cpu: 1,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.7,
+					Value:        321,
+					Name:         "instructions_retired"},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.3,
+					Value:        789,
+					Name:         "instructions_retired"},
+				Cpu: 1,
+			},
+		},
+	}
+	metricVals := getAggregatedCorePerfEvents(containerStats)
+	assert.Equal(t, 2, len(metricVals))
+	values := []float64{}
+	for _, metric := range metricVals {
+		values = append(values, metric.value)
+	}
+	assert.Contains(t, values, 579.0)
+	assert.Contains(t, values, 1110.0)
+}
+
+func TestGetMinCoreScalingRatio(t *testing.T) {
+	containerStats := &info.ContainerStats{
+		Timestamp: time.Unix(1395066367, 0),
+		PerfStats: []info.PerfStat{
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 1.0,
+					Value:        123,
+					Name:         "instructions"},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.5,
+					Value:        456,
+					Name:         "instructions"},
+				Cpu: 1,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.7,
+					Value:        321,
+					Name:         "instructions_retired"},
+				Cpu: 0,
+			},
+			{
+				PerfValue: info.PerfValue{
+					ScalingRatio: 0.3,
+					Value:        789,
+					Name:         "instructions_retired"},
+				Cpu: 1,
+			},
+		},
+	}
+	metricVals := getMinCoreScalingRatio(containerStats)
+	assert.Equal(t, 2, len(metricVals))
+	values := []float64{}
+	for _, metric := range metricVals {
+		values = append(values, metric.value)
+	}
+	assert.Contains(t, values, 0.5)
+	assert.Contains(t, values, 0.3)
 }

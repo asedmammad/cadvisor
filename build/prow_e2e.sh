@@ -28,10 +28,10 @@ cd "$parent_path/.."
 
 # Check whether assets need to be rebuilt.
 FORCE=true build/assets.sh
-if [[ ! -z "$(git diff --name-only pages)" ]]; then
+if [[ ! -z "$(git diff --name-only -- cmd/internal/pages)" ]]; then
   echo "Found changes to UI assets:"
-  git diff --name-only pages
-  echo "Run: `make assets FORCE=true`"
+  git diff --name-only -- cmd/internal/pages
+  echo "Run: 'make assets FORCE=true'"
   exit 1
 fi
 

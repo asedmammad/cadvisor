@@ -16,6 +16,7 @@ package libcontainer
 
 import (
 	"fmt"
+	"io/ioutil"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -23,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/stretchr/testify/assert"
 )
 
 var defaultCgroupSubsystems = []string{
@@ -42,7 +44,7 @@ func cgroupMountsAt(path string, subsystems []string) []cgroups.Mount {
 }
 
 func TestGetCgroupSubsystems(t *testing.T) {
-	ourSubsystems := []string{"cpu,cpuacct", "devices", "memory", "cpuset", "blkio"}
+	ourSubsystems := []string{"cpu,cpuacct", "devices", "memory", "hugetlb", "cpuset", "blkio", "pids"}
 
 	testCases := []struct {
 		mounts   []cgroups.Mount
@@ -64,6 +66,8 @@ func TestGetCgroupSubsystems(t *testing.T) {
 					"cpuset":  "/sys/fs/cgroup/cpuset",
 					"devices": "/sys/fs/cgroup/devices",
 					"memory":  "/sys/fs/cgroup/memory",
+					"hugetlb": "/sys/fs/cgroup/hugetlb",
+					"pids":    "/sys/fs/cgroup/pids",
 				},
 				Mounts: cgroupMountsAt("/sys/fs/cgroup", ourSubsystems),
 			},
@@ -80,13 +84,15 @@ func TestGetCgroupSubsystems(t *testing.T) {
 					"cpuset":  "/sys/fs/cgroup/cpuset",
 					"devices": "/sys/fs/cgroup/devices",
 					"memory":  "/sys/fs/cgroup/memory",
+					"hugetlb": "/sys/fs/cgroup/hugetlb",
+					"pids":    "/sys/fs/cgroup/pids",
 				},
 				Mounts: cgroupMountsAt("/sys/fs/cgroup", ourSubsystems),
 			},
 		},
 		{
 			// most subsystems not mounted
-			mounts: append(cgroupMountsAt("/sys/fs/cgroup", []string{"cpu"})),
+			mounts: cgroupMountsAt("/sys/fs/cgroup", []string{"cpu"}),
 			expected: CgroupSubsystems{
 				MountPoints: map[string]string{
 					"cpu": "/sys/fs/cgroup/cpu",
@@ -124,5 +130,18 @@ func assertCgroupSubsystemsEqual(t *testing.T, expected, actual CgroupSubsystems
 	})
 	if !reflect.DeepEqual(expected.Mounts, actual.Mounts) {
 		t.Fatalf("%s Expected %v == %v", message, expected.Mounts, actual.Mounts)
+	}
+}
+
+func getFileContent(t *testing.T, filePath string) string {
+	fileContent, err := ioutil.ReadFile(filePath)
+	assert.Nil(t, err)
+	return string(fileContent)
+}
+
+func clearTestData(t *testing.T, clearRefsPaths []string) {
+	for _, clearRefsPath := range clearRefsPaths {
+		err := ioutil.WriteFile(clearRefsPath, []byte("0\n"), 0644)
+		assert.Nil(t, err)
 	}
 }

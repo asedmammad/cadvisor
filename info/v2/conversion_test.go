@@ -19,8 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/google/cadvisor/info/v1"
 )
 
 var (
@@ -29,7 +30,7 @@ var (
 	envs      = map[string]string{"foo": "bar"}
 )
 
-func TestContanierSpecFromV1(t *testing.T) {
+func TestContainerSpecFromV1(t *testing.T) {
 	v1Spec := v1.ContainerSpec{
 		CreationTime: timestamp,
 		Labels:       labels,
@@ -46,7 +47,9 @@ func TestContanierSpecFromV1(t *testing.T) {
 			Reservation: 1024,
 			SwapLimit:   8192,
 		},
+		HasHugetlb:       true,
 		HasNetwork:       true,
+		HasProcesses:     true,
 		HasFilesystem:    true,
 		HasDiskIo:        true,
 		HasCustomMetrics: true,
@@ -78,7 +81,9 @@ func TestContanierSpecFromV1(t *testing.T) {
 			Reservation: 1024,
 			SwapLimit:   8192,
 		},
+		HasHugetlb:       true,
 		HasNetwork:       true,
+		HasProcesses:     true,
 		HasFilesystem:    true,
 		HasDiskIo:        true,
 		HasCustomMetrics: true,
@@ -115,7 +120,9 @@ func TestContainerStatsFromV1(t *testing.T) {
 			Reservation: 1024,
 			SwapLimit:   8192,
 		},
+		HasHugetlb:       true,
 		HasNetwork:       true,
+		HasProcesses:     true,
 		HasFilesystem:    true,
 		HasDiskIo:        true,
 		HasCustomMetrics: true,
@@ -168,6 +175,12 @@ func TestContainerStatsFromV1(t *testing.T) {
 				TxDropped: 80,
 			}},
 		},
+		Processes: v1.ProcessStats{
+			ProcessCount:   5,
+			FdCount:        1,
+			ThreadsCurrent: 66,
+			ThreadsMax:     6000,
+		},
 		Filesystem: []v1.FsStats{{
 			Device:     "dev0",
 			Limit:      500,
@@ -184,12 +197,71 @@ func TestContainerStatsFromV1(t *testing.T) {
 			MemoryUsed:  2030405060,
 			DutyCycle:   12,
 		}},
+		PerfStats: []v1.PerfStat{
+			{
+				PerfValue: v1.PerfValue{
+					ScalingRatio: 1,
+					Value:        123,
+					Name:         "instructions",
+				},
+			},
+			{
+				PerfValue: v1.PerfValue{
+					ScalingRatio: 0.3333333,
+					Value:        123456,
+					Name:         "cycles",
+				},
+			},
+		},
+		PerfUncoreStats: []v1.PerfUncoreStat{
+			{
+				PerfValue: v1.PerfValue{
+					ScalingRatio: 1.0,
+					Value:        123456,
+					Name:         "uncore_imc_0/cas_count_write",
+				},
+				Socket: 0,
+				PMU:    "17",
+			},
+			{
+				PerfValue: v1.PerfValue{
+					ScalingRatio: 1.0,
+					Value:        654321,
+					Name:         "uncore_imc_0/cas_count_write",
+				},
+				Socket: 1,
+				PMU:    "17",
+			},
+		},
+		ReferencedMemory: uint64(1234),
+		Resctrl: v1.ResctrlStats{
+			MemoryBandwidth: []v1.MemoryBandwidthStats{
+				{
+					TotalBytes: 72312331,
+					LocalBytes: 1233311,
+				},
+				{
+					TotalBytes: 32312331,
+					LocalBytes: 2233311,
+				},
+			},
+			Cache: []v1.CacheStats{
+				{
+					LLCOccupancy: 123123441,
+				},
+				{
+					LLCOccupancy: 123313111,
+				},
+			},
+		},
 	}
 	expectedV2Stats := ContainerStats{
 		Timestamp: timestamp,
 		Cpu:       &v1Stats.Cpu,
 		DiskIo:    &v1Stats.DiskIo,
 		Memory:    &v1Stats.Memory,
+		Hugetlb:   &v1Stats.Hugetlb,
+		Processes: &v1Stats.Processes,
 		Network: &NetworkStats{
 			Interfaces: v1Stats.Network.Interfaces,
 		},
@@ -198,7 +270,11 @@ func TestContainerStatsFromV1(t *testing.T) {
 			BaseUsageBytes:  &v1Stats.Filesystem[0].BaseUsage,
 			InodeUsage:      &v1Stats.Filesystem[0].Inodes,
 		},
-		Accelerators: v1Stats.Accelerators,
+		Accelerators:     v1Stats.Accelerators,
+		PerfStats:        v1Stats.PerfStats,
+		PerfUncoreStats:  v1Stats.PerfUncoreStats,
+		ReferencedMemory: v1Stats.ReferencedMemory,
+		Resctrl:          v1Stats.Resctrl,
 	}
 
 	v2Stats := ContainerStatsFromV1("test", &v1Spec, []*v1.ContainerStats{&v1Stats})

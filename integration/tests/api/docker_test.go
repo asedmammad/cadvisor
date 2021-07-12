@@ -63,29 +63,23 @@ func waitForContainer(alias string, fm framework.Framework) {
 	require.NoError(fm.T(), err, "Timed out waiting for container %q to be available in cAdvisor: %v", alias, err)
 }
 
-func getDockerMinorVersion(fm framework.Framework) int {
-	val, err := strconv.Atoi(fm.Docker().Version()[1])
-	assert.Nil(fm.T(), err)
-	return val
-}
-
 // A Docker container in /docker/<ID>
 func TestDockerContainerById(t *testing.T) {
 	fm := framework.New(t)
 	defer fm.Cleanup()
 
-	containerId := fm.Docker().RunPause()
+	containerID := fm.Docker().RunPause()
 
 	// Wait for the container to show up.
-	waitForContainer(containerId, fm)
+	waitForContainer(containerID, fm)
 
 	request := &info.ContainerInfoRequest{
 		NumStats: 1,
 	}
-	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerId, request)
+	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerID, request)
 	require.NoError(t, err)
 
-	sanityCheck(containerId, containerInfo, t)
+	sanityCheck(containerID, containerInfo, t)
 }
 
 // A Docker container in /docker/<name>
@@ -130,10 +124,10 @@ func TestGetAllDockerContainers(t *testing.T) {
 	defer fm.Cleanup()
 
 	// Wait for the containers to show up.
-	containerId1 := fm.Docker().RunPause()
-	containerId2 := fm.Docker().RunPause()
-	waitForContainer(containerId1, fm)
-	waitForContainer(containerId2, fm)
+	containerID1 := fm.Docker().RunPause()
+	containerID2 := fm.Docker().RunPause()
+	waitForContainer(containerID1, fm)
+	waitForContainer(containerID2, fm)
 
 	request := &info.ContainerInfoRequest{
 		NumStats: 1,
@@ -144,8 +138,8 @@ func TestGetAllDockerContainers(t *testing.T) {
 	if len(containersInfo) < 2 {
 		t.Fatalf("At least 2 Docker containers should exist, received %d: %+v", len(containersInfo), containersInfo)
 	}
-	sanityCheck(containerId1, findContainer(containerId1, containersInfo, t), t)
-	sanityCheck(containerId2, findContainer(containerId2, containersInfo, t), t)
+	sanityCheck(containerID1, findContainer(containerID1, containersInfo, t), t)
+	sanityCheck(containerID2, findContainer(containerID2, containersInfo, t), t)
 }
 
 // Check expected properties of a Docker container.
@@ -154,7 +148,7 @@ func TestBasicDockerContainer(t *testing.T) {
 	defer fm.Cleanup()
 
 	containerName := fmt.Sprintf("test-basic-docker-container-%d", os.Getpid())
-	containerId := fm.Docker().Run(framework.DockerRunArgs{
+	containerID := fm.Docker().Run(framework.DockerRunArgs{
 		Image: "kubernetes/pause",
 		Args: []string{
 			"--name", containerName,
@@ -162,16 +156,16 @@ func TestBasicDockerContainer(t *testing.T) {
 	})
 
 	// Wait for the container to show up.
-	waitForContainer(containerId, fm)
+	waitForContainer(containerID, fm)
 
 	request := &info.ContainerInfoRequest{
 		NumStats: 1,
 	}
-	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerId, request)
+	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerID, request)
 	require.NoError(t, err)
 
 	// Check that the contianer is known by both its name and ID.
-	sanityCheck(containerId, containerInfo, t)
+	sanityCheck(containerID, containerInfo, t)
 	sanityCheck(containerName, containerInfo, t)
 
 	assert.Empty(t, containerInfo.Subcontainers, "Should not have subcontainers")
@@ -193,7 +187,7 @@ func TestDockerContainerSpec(t *testing.T) {
 		labels      = map[string]string{"bar": "baz"}
 	)
 
-	containerId := fm.Docker().Run(framework.DockerRunArgs{
+	containerID := fm.Docker().Run(framework.DockerRunArgs{
 		Image: image,
 		Args: []string{
 			"--cpu-shares", strconv.FormatUint(cpuShares, 10),
@@ -205,14 +199,14 @@ func TestDockerContainerSpec(t *testing.T) {
 	})
 
 	// Wait for the container to show up.
-	waitForContainer(containerId, fm)
+	waitForContainer(containerID, fm)
 
 	request := &info.ContainerInfoRequest{
 		NumStats: 1,
 	}
-	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerId, request)
+	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerID, request)
 	require.NoError(t, err)
-	sanityCheck(containerId, containerInfo, t)
+	sanityCheck(containerID, containerInfo, t)
 
 	assert := assert.New(t)
 
@@ -235,20 +229,20 @@ func TestDockerContainerCpuStats(t *testing.T) {
 	defer fm.Cleanup()
 
 	// Wait for the container to show up.
-	containerId := fm.Docker().RunBusybox("ping", "www.google.com")
-	waitForContainer(containerId, fm)
+	containerID := fm.Docker().RunBusybox("ping", "www.google.com")
+	waitForContainer(containerID, fm)
 
 	request := &info.ContainerInfoRequest{
 		NumStats: 1,
 	}
-	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerId, request)
+	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerID, request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sanityCheck(containerId, containerInfo, t)
+	sanityCheck(containerID, containerInfo, t)
 
 	// Checks for CpuStats.
-	checkCpuStats(t, containerInfo.Stats[0].Cpu)
+	checkCPUStats(t, containerInfo.Stats[0].Cpu)
 }
 
 // Check the memory ContainerStats.
@@ -257,15 +251,15 @@ func TestDockerContainerMemoryStats(t *testing.T) {
 	defer fm.Cleanup()
 
 	// Wait for the container to show up.
-	containerId := fm.Docker().RunBusybox("ping", "www.google.com")
-	waitForContainer(containerId, fm)
+	containerID := fm.Docker().RunBusybox("ping", "www.google.com")
+	waitForContainer(containerID, fm)
 
 	request := &info.ContainerInfoRequest{
 		NumStats: 1,
 	}
-	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerId, request)
+	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerID, request)
 	require.NoError(t, err)
-	sanityCheck(containerId, containerInfo, t)
+	sanityCheck(containerID, containerInfo, t)
 
 	// Checks for MemoryStats.
 	checkMemoryStats(t, containerInfo.Stats[0].Memory)
@@ -277,26 +271,38 @@ func TestDockerContainerNetworkStats(t *testing.T) {
 	defer fm.Cleanup()
 
 	// Wait for the container to show up.
-	containerId := fm.Docker().RunBusybox("watch", "-n1", "wget", "http://www.google.com/")
-	waitForContainer(containerId, fm)
+	containerID := fm.Docker().RunBusybox("watch", "-n1", "wget", "http://www.google.com/")
+	waitForContainer(containerID, fm)
 
-	time.Sleep(10 * time.Second)
+	// Wait for at least one additional housekeeping interval
+	time.Sleep(20 * time.Second)
 	request := &info.ContainerInfoRequest{
 		NumStats: 1,
 	}
-	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerId, request)
+	containerInfo, err := fm.Cadvisor().Client().DockerContainer(containerID, request)
 	require.NoError(t, err)
-	sanityCheck(containerId, containerInfo, t)
+	sanityCheck(containerID, containerInfo, t)
+
+	stat := containerInfo.Stats[0]
+	ifaceStats := stat.Network.InterfaceStats
+	// macOS we have more than one interface, since traffic is
+	// only on eth0 we need to pick that one
+	if len(stat.Network.Interfaces) > 0 {
+		for _, iface := range stat.Network.Interfaces {
+			if iface.Name == "eth0" {
+				ifaceStats = iface
+			}
+		}
+	}
 
 	// Checks for NetworkStats.
-	stat := containerInfo.Stats[0]
 	assert := assert.New(t)
-	assert.NotEqual(0, stat.Network.TxBytes, "Network tx bytes should not be zero")
-	assert.NotEqual(0, stat.Network.TxPackets, "Network tx packets should not be zero")
-	assert.NotEqual(0, stat.Network.RxBytes, "Network rx bytes should not be zero")
-	assert.NotEqual(0, stat.Network.RxPackets, "Network rx packets should not be zero")
-	assert.NotEqual(stat.Network.RxBytes, stat.Network.TxBytes, "Network tx and rx bytes should not be equal")
-	assert.NotEqual(stat.Network.RxPackets, stat.Network.TxPackets, "Network tx and rx packets should not be equal")
+	assert.NotEqual(0, ifaceStats.TxBytes, "Network tx bytes should not be zero")
+	assert.NotEqual(0, ifaceStats.TxPackets, "Network tx packets should not be zero")
+	assert.NotEqual(0, ifaceStats.RxBytes, "Network rx bytes should not be zero")
+	assert.NotEqual(0, ifaceStats.RxPackets, "Network rx packets should not be zero")
+	assert.NotEqual(ifaceStats.RxBytes, ifaceStats.TxBytes, fmt.Sprintf("Network tx (%d) and rx (%d) bytes should not be equal", ifaceStats.TxBytes, ifaceStats.RxBytes))
+	assert.NotEqual(ifaceStats.RxPackets, ifaceStats.TxPackets, fmt.Sprintf("Network tx (%d) and rx (%d) packets should not be equal", ifaceStats.TxPackets, ifaceStats.RxPackets))
 }
 
 func TestDockerFilesystemStats(t *testing.T) {
@@ -321,8 +327,8 @@ func TestDockerFilesystemStats(t *testing.T) {
 	if fm.Hostname().Host != "localhost" {
 		dockerCmd = fmt.Sprintf("'%s'", dockerCmd)
 	}
-	containerId := fm.Docker().RunBusybox("/bin/sh", "-c", dockerCmd)
-	waitForContainer(containerId, fm)
+	containerID := fm.Docker().RunBusybox("/bin/sh", "-c", dockerCmd)
+	waitForContainer(containerID, fm)
 	request := &v2.RequestOptions{
 		IdType: v2.TypeDocker,
 		Count:  1,
@@ -335,7 +341,7 @@ func TestDockerFilesystemStats(t *testing.T) {
 	pass := false
 	// We need to wait for the `dd` operation to complete.
 	for i := 0; i < 10; i++ {
-		containerInfo, err := fm.Cadvisor().ClientV2().Stats(containerId, request)
+		containerInfo, err := fm.Cadvisor().ClientV2().Stats(containerID, request)
 		if err != nil {
 			t.Logf("%v stats unavailable - %v", time.Now().String(), err)
 			t.Logf("retrying after %s...", sleepDuration.String())
@@ -350,7 +356,7 @@ func TestDockerFilesystemStats(t *testing.T) {
 		for _, cInfo := range containerInfo {
 			info = cInfo
 		}
-		sanityCheckV2(containerId, info, t)
+		sanityCheckV2(containerID, info, t)
 
 		require.NotNil(t, info.Stats[0], "got info: %+v", info)
 		require.NotNil(t, info.Stats[0].Filesystem, "got info: %+v", info)

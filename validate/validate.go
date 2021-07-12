@@ -134,12 +134,12 @@ func areCgroupsPresent(available map[string]int, desired []string) (bool, string
 	return true, ""
 }
 
-func validateCpuCfsBandwidth(available_cgroups map[string]int) string {
-	ok, _ := areCgroupsPresent(available_cgroups, []string{"cpu"})
+func validateCPUCFSBandwidth(availableCgroups map[string]int) string {
+	ok, _ := areCgroupsPresent(availableCgroups, []string{"cpu"})
 	if !ok {
 		return "\tCpu cfs bandwidth status unknown: cpu cgroup not enabled.\n"
 	}
-	mnt, err := cgroups.FindCgroupMountpoint("cpu")
+	mnt, err := cgroups.FindCgroupMountpoint("/", "cpu")
 	if err != nil {
 		return "\tCpu cfs bandwidth status unknown: cpu cgroup not mounted.\n"
 	}
@@ -151,23 +151,27 @@ func validateCpuCfsBandwidth(available_cgroups map[string]int) string {
 	return "\tCpu cfs bandwidth is enabled.\n"
 }
 
-func validateMemoryAccounting(available_cgroups map[string]int) string {
-	ok, _ := areCgroupsPresent(available_cgroups, []string{"memory"})
+func validateMemoryAccounting(availableCgroups map[string]int) string {
+	ok, _ := areCgroupsPresent(availableCgroups, []string{"memory"})
 	if !ok {
 		return "\tHierarchical memory accounting status unknown: memory cgroup not enabled.\n"
 	}
-	mnt, err := cgroups.FindCgroupMountpoint("memory")
-	if err != nil {
-		return "\tHierarchical memory accounting status unknown: memory cgroup not mounted.\n"
-	}
-	hier, err := ioutil.ReadFile(path.Join(mnt, "memory.use_hierarchy"))
-	if err != nil {
-		return "\tHierarchical memory accounting status unknown: hierarchy interface unavailable.\n"
-	}
 	var enabled int
-	n, err := fmt.Sscanf(string(hier), "%d", &enabled)
-	if err != nil || n != 1 {
-		return "\tHierarchical memory accounting status unknown: hierarchy interface unreadable.\n"
+	if cgroups.IsCgroup2UnifiedMode() {
+		enabled = 1
+	} else {
+		mnt, err := cgroups.FindCgroupMountpoint("/", "memory")
+		if err != nil {
+			return "\tHierarchical memory accounting status unknown: memory cgroup not mounted.\n"
+		}
+		hier, err := ioutil.ReadFile(path.Join(mnt, "memory.use_hierarchy"))
+		if err != nil {
+			return "\tHierarchical memory accounting status unknown: hierarchy interface unavailable.\n"
+		}
+		n, err := fmt.Sscanf(string(hier), "%d", &enabled)
+		if err != nil || n != 1 {
+			return "\tHierarchical memory accounting status unknown: hierarchy interface unreadable.\n"
+		}
 	}
 	if enabled == 1 {
 		return "\tHierarchical memory accounting enabled. Reported memory usage includes memory used by child containers.\n"
@@ -177,29 +181,29 @@ func validateMemoryAccounting(available_cgroups map[string]int) string {
 }
 
 func validateCgroups() (string, string) {
-	required_cgroups := []string{"cpu", "cpuacct"}
-	recommended_cgroups := []string{"memory", "blkio", "cpuset", "devices", "freezer"}
-	available_cgroups, err := getEnabledCgroups()
-	desc := fmt.Sprintf("\tFollowing cgroups are required: %v\n\tFollowing other cgroups are recommended: %v\n", required_cgroups, recommended_cgroups)
+	requiredCgroups := []string{"cpu", "cpuacct"}
+	recommendedCgroups := []string{"memory", "blkio", "cpuset", "devices", "freezer"}
+	availableCgroups, err := getEnabledCgroups()
+	desc := fmt.Sprintf("\tFollowing cgroups are required: %v\n\tFollowing other cgroups are recommended: %v\n", requiredCgroups, recommendedCgroups)
 	if err != nil {
 		desc = fmt.Sprintf("Could not parse /proc/cgroups.\n%s", desc)
 		return Unknown, desc
 	}
-	ok, out := areCgroupsPresent(available_cgroups, required_cgroups)
+	ok, out := areCgroupsPresent(availableCgroups, requiredCgroups)
 	if !ok {
 		out += desc
 		return Unsupported, out
 	}
-	ok, out = areCgroupsPresent(available_cgroups, recommended_cgroups)
+	ok, out = areCgroupsPresent(availableCgroups, recommendedCgroups)
 	if !ok {
 		// supported, but not recommended.
 		out += desc
 		return Supported, out
 	}
-	out = fmt.Sprintf("Available cgroups: %v\n", available_cgroups)
+	out = fmt.Sprintf("Available cgroups: %v\n", availableCgroups)
 	out += desc
-	out += validateMemoryAccounting(available_cgroups)
-	out += validateCpuCfsBandwidth(available_cgroups)
+	out += validateMemoryAccounting(availableCgroups)
+	out += validateCPUCFSBandwidth(availableCgroups)
 	return Recommended, out
 }
 
@@ -216,7 +220,7 @@ func validateDockerInfo() (string, string) {
 func validateCgroupMounts() (string, string) {
 	const recommendedMount = "/sys/fs/cgroup"
 	desc := fmt.Sprintf("\tAny cgroup mount point that is detectible and accessible is supported. %s is recommended as a standard location.\n", recommendedMount)
-	mnt, err := cgroups.FindCgroupMountpoint("cpu")
+	mnt, err := cgroups.FindCgroupMountpoint("/", "cpu")
 	if err != nil {
 		out := "Could not locate cgroup mount point.\n"
 		out += desc
@@ -244,7 +248,7 @@ func validateCgroupMounts() (string, string) {
 	out += desc
 	info, err := ioutil.ReadFile("/proc/mounts")
 	if err != nil {
-		out := fmt.Sprintf("Could not read /proc/mounts.\n")
+		out := "Could not read /proc/mounts.\n"
 		out += desc
 		return Unsupported, out
 	}

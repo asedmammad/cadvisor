@@ -14,6 +14,7 @@
 package accelerators
 
 import (
+	"github.com/google/cadvisor/stats"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -72,39 +73,39 @@ func TestGetCollector(t *testing.T) {
 	}
 	parseDevicesCgroup = mockParser
 	originalInitializeNVML := initializeNVML
-	initializeNVML = func(_ *NvidiaManager) {}
+	initializeNVML = func(_ *nvidiaManager) error {
+		return nil
+	}
 	defer func() {
 		parseDevicesCgroup = originalParser
 		initializeNVML = originalInitializeNVML
 	}()
 
-	nm := &NvidiaManager{}
+	nm := &nvidiaManager{}
 
 	// When devicesPresent is false, empty collector should be returned.
 	ac, err := nm.GetCollector("does-not-matter")
 	assert.Nil(t, err)
 	assert.NotNil(t, ac)
-	nc, ok := ac.(*NvidiaCollector)
+	_, ok := ac.(*stats.NoopCollector)
 	assert.True(t, ok)
-	assert.Equal(t, 0, len(nc.Devices))
 
 	// When nvmlInitialized is false, empty collector should be returned.
 	nm.devicesPresent = true
 	ac, err = nm.GetCollector("does-not-matter")
 	assert.Nil(t, err)
 	assert.NotNil(t, ac)
-	nc, ok = ac.(*NvidiaCollector)
+	_, ok = ac.(*stats.NoopCollector)
 	assert.True(t, ok)
-	assert.Equal(t, 0, len(nc.Devices))
 
 	// When nvidiaDevices is empty, empty collector should be returned.
 	nm.nvmlInitialized = true
+	nm.nvidiaDevices = map[int]gonvml.Device{}
 	ac, err = nm.GetCollector("does-not-matter")
 	assert.Nil(t, err)
 	assert.NotNil(t, ac)
-	nc, ok = ac.(*NvidiaCollector)
+	_, ok = ac.(*stats.NoopCollector)
 	assert.True(t, ok)
-	assert.Equal(t, 0, len(nc.Devices))
 
 	// nvidiaDevices contains devices but they are different than what
 	// is returned by parseDevicesCgroup. We should get an error.
@@ -112,9 +113,8 @@ func TestGetCollector(t *testing.T) {
 	ac, err = nm.GetCollector("does-not-matter")
 	assert.NotNil(t, err)
 	assert.NotNil(t, ac)
-	nc, ok = ac.(*NvidiaCollector)
+	_, ok = ac.(*stats.NoopCollector)
 	assert.True(t, ok)
-	assert.Equal(t, 0, len(nc.Devices))
 
 	// nvidiaDevices contains devices returned by parseDevicesCgroup.
 	// No error should be returned and collectors devices array should be
@@ -124,9 +124,9 @@ func TestGetCollector(t *testing.T) {
 	ac, err = nm.GetCollector("does-not-matter")
 	assert.Nil(t, err)
 	assert.NotNil(t, ac)
-	nc, ok = ac.(*NvidiaCollector)
+	nc, ok := ac.(*nvidiaCollector)
 	assert.True(t, ok)
-	assert.Equal(t, 2, len(nc.Devices))
+	assert.Equal(t, 2, len(nc.devices))
 }
 
 func TestParseDevicesCgroup(t *testing.T) {

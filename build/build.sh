@@ -20,6 +20,7 @@ GO_FLAGS=${GO_FLAGS:-"-tags netgo"}    # Extra go flags to use in the build.
 BUILD_USER=${BUILD_USER:-"${USER}@${HOSTNAME}"}
 BUILD_DATE=${BUILD_DATE:-$( date +%Y%m%d-%H:%M:%S )}
 VERBOSE=${VERBOSE:-}
+GOARCH=$1
 
 repo_path="github.com/google/cadvisor"
 
@@ -49,6 +50,15 @@ if [ -n "$VERBOSE" ]; then
   echo "Building with -ldflags $ldflags"
 fi
 
-GOBIN=$PWD go build ${GO_FLAGS} -ldflags "${ldflags}" "${repo_path}"
+# Since github.com/google/cadvisor/cmd is a submodule, we must build from inside that directory
+output_file="$PWD/cadvisor"
+pushd cmd > /dev/null
+if [ -z "$GOARCH" ]
+then
+  go build ${GO_FLAGS} -ldflags "${ldflags}" -o "${output_file}" "${repo_path}/cmd"
+else
+  env GOOS=linux GOARCH=$GOARCH go build ${GO_FLAGS} -ldflags "${ldflags}" -o "${output_file}" "${repo_path}/cmd"
+fi
+popd > /dev/null
 
 exit 0

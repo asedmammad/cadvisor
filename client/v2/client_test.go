@@ -27,23 +27,7 @@ import (
 	"github.com/google/cadvisor/info/v1"
 	"github.com/google/cadvisor/info/v2"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/kr/pretty"
 )
-
-func testGetJsonData(
-	expected interface{},
-	f func() (interface{}, error),
-) error {
-	reply, err := f()
-	if err != nil {
-		return fmt.Errorf("unable to retrieve data: %v", err)
-	}
-	if !reflect.DeepEqual(reply, expected) {
-		return pretty.Errorf("retrieved wrong data: %# v != %# v", reply, expected)
-	}
-	return nil
-}
 
 func cadvisorTestClient(path string, expectedPostObj *v1.ContainerInfoRequest, replyObj interface{}, t *testing.T) (*Client, *httptest.Server, error) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +45,8 @@ func cadvisorTestClient(path string, expectedPostObj *v1.ContainerInfoRequest, r
 				}
 			}
 			encoder := json.NewEncoder(w)
-			encoder.Encode(replyObj)
+			err := encoder.Encode(replyObj)
+			assert.NoError(t, err)
 		} else if r.URL.Path == "/api/v2.1/version" {
 			fmt.Fprintf(w, "0.1.2")
 		} else {

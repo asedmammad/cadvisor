@@ -5,6 +5,7 @@
 We have a Docker image that includes everything you need to get started. Simply run:
 
 ```
+VERSION=v0.35.0 # use the latest release version from https://github.com/google/cadvisor/releases
 sudo docker run \
   --volume=/:/rootfs:ro \
   --volume=/var/run:/var/run:rw \
@@ -13,14 +14,38 @@ sudo docker run \
   --publish=8080:8080 \
   --detach=true \
   --name=cadvisor \
-  google/cadvisor:latest
+  gcr.io/cadvisor/cadvisor:$VERSION
 ```
 
 cAdvisor is now running (in the background) on `http://localhost:8080/`. The setup includes directories with Docker state cAdvisor needs to observe.
 
-**Note**: If docker daemon is running with [user namespace enabled](https://docs.docker.com/engine/reference/commandline/dockerd/#starting-the-daemon-with-user-namespaces-enabled),
-You need to add `--userns=host` option in order for cAdvisor to monitor Docker containers,
+**Note**: 
+- If docker daemon is running with [user namespace enabled](https://docs.docker.com/engine/reference/commandline/dockerd/#starting-the-daemon-with-user-namespaces-enabled),
+you need to add `--userns=host` option in order for cAdvisor to monitor Docker containers,
 otherwise cAdvisor can not connect to docker daemon.
+- If cadvisor scrapes `process metrics` by set flag `--disable_metrics`, you need to add `--pid=host` and `--privileged` for `docker run` to get `/proc/pid/fd` path in host.
+- If cAdvisor needs to be run in Docker container without `--privileged` option it is possible to add host devices to container using `--dev` and
+  specify security options using `--security-opt` with secure computing mode (seccomp).
+  For details related to seccomp please [see](https://docs.docker.com/engine/security/seccomp/), the default Docker profile can be found [here](https://github.com/moby/moby/blob/master/profiles/seccomp/default.json).
+
+  For example to run cAdvisor with perf support in Docker container without `--privileged` option it is required to:
+  - Set perf_event_paranoid using `sudo sysctl kernel.perf_event_paranoid=-1`, see [documentation](https://www.kernel.org/doc/Documentation/sysctl/kernel.txt)
+  - Add "perf_event_open" syscall into syscalls array with the action: "SCMP_ACT_ALLOW" in [default Docker profile](https://github.com/moby/moby/blob/master/profiles/seccomp/default.json)
+  - Run Docker container with following options:
+  ```
+  docker run \
+  --volume=/:/rootfs:ro \
+  --volume=/var/run:/var/run:ro \
+  --volume=/sys:/sys:ro \
+  --volume=/var/lib/docker/:/var/lib/docker:ro \
+  --volume=/dev/disk/:/dev/disk:ro \
+  --volume=$GOPATH/src/github.com/google/cadvisor/perf/testing:/etc/configs/perf \
+  --publish=8080:8080 \
+  --device=/dev/kmsg \
+  --security-opt seccomp=default.json \
+  --name=cadvisor \
+  gcr.io/cadvisor/cadvisor:<tag> -perf_events_config=/etc/configs/perf/perf.json
+  ```
 
 ## Latest Canary
 
@@ -48,6 +73,21 @@ You may need to run the container with `--privileged=true` and `--volume=/cgroup
 RHEL and CentOS lock down their containers a bit more. cAdvisor needs access to the Docker daemon through its socket. This requires `--privileged=true` in RHEL and CentOS.
 
 On some versions of RHEL and CentOS the cgroup hierarchies are mounted in `/cgroup` so run cAdvisor with an additional Docker option of `--volume=/cgroup:/cgroup:ro \`.
+
+**Note**: For a RedHat 7 docker host the default run commands from above throw oci errors. Please use the command below if the host is RedHat 7:
+```
+docker run
+--volume=/:/rootfs:ro
+--volume=/var/run:/var/run:rw
+--volume=/sys/fs/cgroup/cpu,cpuacct:/sys/fs/cgroup/cpuacct,cpu
+--volume=/var/lib/docker/:/var/lib/docker:ro
+--publish=8080:8080
+--detach=true
+--name=cadvisor
+--privileged=true
+google/cadvisor:latest
+```
+
 
 ### Debian
 

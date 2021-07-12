@@ -16,11 +16,12 @@ package libcontainer
 
 import (
 	"os"
+	"reflect"
 	"testing"
 
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
-	"github.com/opencontainers/runc/libcontainer/system"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestScanInterfaceStats(t *testing.T) {
@@ -72,7 +73,7 @@ func TestScanUDPStats(t *testing.T) {
 		t.Errorf("failure opening %s: %v", udpStatsFile, err)
 	}
 
-	stats, err := scanUdpStats(r)
+	stats, err := scanUDPStats(r)
 	if err != nil {
 		t.Error(err)
 	}
@@ -92,24 +93,18 @@ func TestScanUDPStats(t *testing.T) {
 // https://github.com/docker/libcontainer/blob/v2.2.1/cgroups/fs/cpuacct.go#L19
 const nanosecondsInSeconds = 1000000000
 
-var clockTicks = uint64(system.GetClockTicks())
+// https://github.com/containerd/cgroups/pull/12
+const clockTicks = 100
 
-func TestMorePossibleCPUs(t *testing.T) {
-	realNumCPUs := uint32(8)
-	numCpusFunc = func() (uint32, error) {
-		return realNumCPUs, nil
+func TestSetCPUStats(t *testing.T) {
+	perCPUUsage := make([]uint64, 31)
+	for i := uint32(0); i < 31; i++ {
+		perCPUUsage[i] = 8562955455524
 	}
-	possibleCPUs := uint32(31)
-
-	perCpuUsage := make([]uint64, possibleCPUs)
-	for i := uint32(0); i < realNumCPUs; i++ {
-		perCpuUsage[i] = 8562955455524
-	}
-
 	s := &cgroups.Stats{
 		CpuStats: cgroups.CpuStats{
 			CpuUsage: cgroups.CpuUsage{
-				PercpuUsage:       perCpuUsage,
+				PercpuUsage:       perCPUUsage,
 				TotalUsage:        33802947350272,
 				UsageInKernelmode: 734746 * nanosecondsInSeconds / clockTicks,
 				UsageInUsermode:   2767637 * nanosecondsInSeconds / clockTicks,
@@ -117,12 +112,12 @@ func TestMorePossibleCPUs(t *testing.T) {
 		},
 	}
 	var ret info.ContainerStats
-	setCpuStats(s, &ret, true)
+	setCPUStats(s, &ret, true)
 
 	expected := info.ContainerStats{
 		Cpu: info.CpuStats{
 			Usage: info.CpuUsage{
-				PerCpu: perCpuUsage[0:realNumCPUs],
+				PerCpu: perCPUUsage,
 				User:   s.CpuStats.CpuUsage.UsageInUsermode,
 				System: s.CpuStats.CpuUsage.UsageInKernelmode,
 				Total:  33802947350272,
@@ -133,4 +128,168 @@ func TestMorePossibleCPUs(t *testing.T) {
 	if !ret.Eq(&expected) {
 		t.Fatalf("expected %+v == %+v", ret, expected)
 	}
+}
+
+func TestSetProcessesStats(t *testing.T) {
+	ret := info.ContainerStats{
+		Processes: info.ProcessStats{
+			ProcessCount: 1,
+			FdCount:      2,
+		},
+	}
+	s := &cgroups.Stats{
+		PidsStats: cgroups.PidsStats{
+			Current: 5,
+			Limit:   100,
+		},
+	}
+	setThreadsStats(s, &ret)
+
+	expected := info.ContainerStats{
+
+		Processes: info.ProcessStats{
+			ProcessCount:   1,
+			FdCount:        2,
+			ThreadsCurrent: s.PidsStats.Current,
+			ThreadsMax:     s.PidsStats.Limit,
+		},
+	}
+
+	if expected.Processes.ProcessCount != ret.Processes.ProcessCount {
+		t.Fatalf("expected ProcessCount: %d == %d", ret.Processes.ProcessCount, expected.Processes.ProcessCount)
+	}
+	if expected.Processes.FdCount != ret.Processes.FdCount {
+		t.Fatalf("expected FdCount: %d == %d", ret.Processes.FdCount, expected.Processes.FdCount)
+	}
+
+	if expected.Processes.ThreadsCurrent != ret.Processes.ThreadsCurrent {
+		t.Fatalf("expected current threads: %d == %d", ret.Processes.ThreadsCurrent, expected.Processes.ThreadsCurrent)
+	}
+	if expected.Processes.ThreadsMax != ret.Processes.ThreadsMax {
+		t.Fatalf("expected max threads: %d == %d", ret.Processes.ThreadsMax, expected.Processes.ThreadsMax)
+	}
+
+}
+
+func TestParseLimitsFile(t *testing.T) {
+	var testData = []struct {
+		limitLine string
+		expected  []info.UlimitSpec
+	}{
+		{
+			"Limit                     Soft Limit           Hard Limit           Units   \n",
+			[]info.UlimitSpec{},
+		},
+		{
+			"Max open files            8192                 8192                 files   \n",
+			[]info.UlimitSpec{{Name: "max_open_files", SoftLimit: 8192, HardLimit: 8192}},
+		},
+		{
+			"Max open files            85899345920          85899345920          files   \n",
+			[]info.UlimitSpec{{Name: "max_open_files", SoftLimit: 85899345920, HardLimit: 85899345920}},
+		},
+		{
+			"Max open files            gibberish1           8192                 files   \n",
+			[]info.UlimitSpec{},
+		},
+		{
+			"Max open files            8192                 0xbaddata            files   \n",
+			[]info.UlimitSpec{},
+		},
+		{
+			"Max stack size            8192                 8192                 files   \n",
+			[]info.UlimitSpec{},
+		},
+	}
+
+	for _, testItem := range testData {
+		actual := processLimitsFile(testItem.limitLine)
+		if reflect.DeepEqual(actual, testItem.expected) == false {
+			t.Fatalf("Parsed ulimit doesn't match expected values for line: %s", testItem.limitLine)
+		}
+	}
+}
+
+func TestReferencedBytesStat(t *testing.T) {
+	//overwrite package variables
+	smapsFilePathPattern = "testdata/smaps%d"
+	clearRefsFilePathPattern = "testdata/clear_refs%d"
+
+	pids := []int{4, 6, 8}
+	stat, err := referencedBytesStat(pids, 1, 3)
+	assert.Nil(t, err)
+	assert.Equal(t, uint64(416*1024), stat)
+
+	clearRefsFiles := []string{
+		"testdata/clear_refs4",
+		"testdata/clear_refs6",
+		"testdata/clear_refs8"}
+
+	//check if clear_refs files have proper values
+	assert.Equal(t, "0\n", getFileContent(t, clearRefsFiles[0]))
+	assert.Equal(t, "0\n", getFileContent(t, clearRefsFiles[1]))
+	assert.Equal(t, "0\n", getFileContent(t, clearRefsFiles[2]))
+}
+
+func TestReferencedBytesStatWhenNeverCleared(t *testing.T) {
+	//overwrite package variables
+	smapsFilePathPattern = "testdata/smaps%d"
+	clearRefsFilePathPattern = "testdata/clear_refs%d"
+
+	pids := []int{4, 6, 8}
+	stat, err := referencedBytesStat(pids, 1, 0)
+	assert.Nil(t, err)
+	assert.Equal(t, uint64(416*1024), stat)
+
+	clearRefsFiles := []string{
+		"testdata/clear_refs4",
+		"testdata/clear_refs6",
+		"testdata/clear_refs8"}
+
+	//check if clear_refs files have proper values
+	assert.Equal(t, "0\n", getFileContent(t, clearRefsFiles[0]))
+	assert.Equal(t, "0\n", getFileContent(t, clearRefsFiles[1]))
+	assert.Equal(t, "0\n", getFileContent(t, clearRefsFiles[2]))
+}
+
+func TestReferencedBytesStatWhenResetIsNeeded(t *testing.T) {
+	//overwrite package variables
+	smapsFilePathPattern = "testdata/smaps%d"
+	clearRefsFilePathPattern = "testdata/clear_refs%d"
+
+	pids := []int{4, 6, 8}
+	stat, err := referencedBytesStat(pids, 1, 1)
+	assert.Nil(t, err)
+	assert.Equal(t, uint64(416*1024), stat)
+
+	clearRefsFiles := []string{
+		"testdata/clear_refs4",
+		"testdata/clear_refs6",
+		"testdata/clear_refs8"}
+
+	//check if clear_refs files have proper values
+	assert.Equal(t, "1\n", getFileContent(t, clearRefsFiles[0]))
+	assert.Equal(t, "1\n", getFileContent(t, clearRefsFiles[1]))
+	assert.Equal(t, "1\n", getFileContent(t, clearRefsFiles[2]))
+
+	clearTestData(t, clearRefsFiles)
+}
+
+func TestGetReferencedKBytesWhenSmapsMissing(t *testing.T) {
+	//overwrite package variable
+	smapsFilePathPattern = "testdata/smaps%d"
+
+	pids := []int{10}
+	referenced, err := getReferencedKBytes(pids)
+	assert.Nil(t, err)
+	assert.Equal(t, uint64(0), referenced)
+}
+
+func TestClearReferencedBytesWhenClearRefsMissing(t *testing.T) {
+	//overwrite package variable
+	clearRefsFilePathPattern = "testdata/clear_refs%d"
+
+	pids := []int{10}
+	err := clearReferencedBytes(pids, 0, 1)
+	assert.Nil(t, err)
 }
